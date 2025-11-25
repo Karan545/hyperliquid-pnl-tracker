@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime, timedelta
 
-st.title("🔥 Hyperliquid P&L CSV Exporter")
+st.title("Hyperliquid P&L CSV Exporter")
 
 wallet_address = st.text_input("Enter your Hyperliquid wallet address:")
 days = st.slider("Number of days to analyze", 1, 90, 30)
@@ -56,3 +56,4 @@ if st.button("Generate P&L CSV"):
                 file_name=f'hyperliquid_pnl_{wallet_address[:8]}.csv',
                 mime='text/csv'
             )
+
