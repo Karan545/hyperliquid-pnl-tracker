@@ -6,6 +6,7 @@ from datetime import datetime
 st.title("Hyperliquid P&L CSV Exporter")
 
 wallet_address = st.text_input("Enter your Hyperliquid wallet address:")
+
 today = datetime.today()
 date_from = st.date_input("From date", today.replace(day=1))
 date_to = st.date_input("To date", today)
@@ -16,9 +17,18 @@ def get_extended_fills(wallet_address, date_from, date_to):
         response = requests.post(url, json={"type": "userFills", "user": wallet_address})
         response.raise_for_status()
         all_fills = response.json()
+        # Convert dates to correct Unix timestamps in milliseconds
         from_ts = int(datetime.combine(date_from, datetime.min.time()).timestamp() * 1000)
         to_ts = int(datetime.combine(date_to, datetime.max.time()).timestamp() * 1000)
-        return [f for f in all_fills if from_ts <= f['time'] <= to_ts]
+        # Debug: Print how many fills were fetched
+        print(f"Total fills retrieved: {len(all_fills)}")
+        # No-Filter shortcut: If no fills, just return
+        if not isinstance(all_fills, list) or not all_fills:
+            return []
+        # Filter by correct range
+        filtered = [f for f in all_fills if 'time' in f and from_ts <= int(f['time']) <= to_ts]
+        print(f"Filtered fills: {len(filtered)}")
+        return filtered
     except Exception as e:
         st.error(f"Error fetching data: {e}")
         return []
@@ -26,14 +36,14 @@ def get_extended_fills(wallet_address, date_from, date_to):
 def format_fills_to_dataframe(fills):
     rows = []
     for fill in fills:
-        ts = datetime.fromtimestamp(fill['time'] / 1000)
+        ts = datetime.fromtimestamp(int(fill['time']) / 1000)
         rows.append({
             'Date': ts.strftime('%Y-%m-%d'),
             'Time': ts.strftime('%H:%M:%S'),
-            'Asset': fill['coin'],
-            'Side': 'BUY' if fill['side'] == 'B' else 'SELL',
-            'Price': float(fill['px']),
-            'Size': float(fill['sz']),
+            'Asset': fill.get('coin', ''),
+            'Side': 'BUY' if fill.get('side', '') == 'B' else 'SELL',
+            'Price': float(fill.get('px', 0)),
+            'Size': float(fill.get('sz', 0)),
             'Fee': float(fill.get('fee', 0)),
             'Closed P&L': float(fill.get('closedPnl', 0))
         })
@@ -60,4 +70,3 @@ if st.button("Generate P&L CSV"):
                 file_name=f'hyperliquid_pnl_{wallet_address[:8]}_{date_from}_{date_to}.csv',
                 mime='text/csv'
             )
-
