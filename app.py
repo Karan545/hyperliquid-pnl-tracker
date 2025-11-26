@@ -91,11 +91,3 @@ if st.button("Generate P&L CSV"):
                     mime='text/csv'
                 )
 
-# Footer – tip for clients
-st.markdown("""
----
-**Demo Notes:**  
-- If you see "No trades found", try a different active wallet from the Hyperliquid explorer.
-- For real asset data, use wallets seen in leaderboards or recent trade feeds.
-- API and code show raw error messages if endpoint changes.
-""")
