@@ -3,7 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime
 
-st.title("Hyperliquid P&L CSV Exporter")
+st.title("🔥 Hyperliquid P&L CSV Exporter (Debug Mode)")
 
 wallet_address = st.text_input("Enter your Hyperliquid wallet address:")
 
@@ -14,20 +14,27 @@ date_to = st.date_input("To date", today)
 def get_extended_fills(wallet_address, date_from, date_to):
     try:
         url = "https://api.hyperliquid.xyz/info"
+        st.write(f"Requesting fills for: {wallet_address}")
         response = requests.post(url, json={"type": "userFills", "user": wallet_address})
+        st.write("API Status Code:", response.status_code)
+        raw_data = response.json()
+        st.write("API Raw Response:", raw_data)
+
         response.raise_for_status()
-        all_fills = response.json()
-        # Convert dates to correct Unix timestamps in milliseconds
+        # Defensive: Handle both list and dict results
+        if isinstance(raw_data, dict) and 'error' in raw_data:
+            st.error(f"API Error: {raw_data['error']}")
+            return []
+        if not isinstance(raw_data, list):
+            st.error("API didn't return a list of fills.")
+            return []
+
         from_ts = int(datetime.combine(date_from, datetime.min.time()).timestamp() * 1000)
         to_ts = int(datetime.combine(date_to, datetime.max.time()).timestamp() * 1000)
-        # Debug: Print how many fills were fetched
-        print(f"Total fills retrieved: {len(all_fills)}")
-        # No-Filter shortcut: If no fills, just return
-        if not isinstance(all_fills, list) or not all_fills:
-            return []
-        # Filter by correct range
-        filtered = [f for f in all_fills if 'time' in f and from_ts <= int(f['time']) <= to_ts]
-        print(f"Filtered fills: {len(filtered)}")
+        st.write(f"Filtering fills between {from_ts} and {to_ts} (Unix ms)")
+
+        filtered = [f for f in raw_data if 'time' in f and from_ts <= int(f['time']) <= to_ts]
+        st.write(f"Filtered fills (count: {len(filtered)}):", filtered)
         return filtered
     except Exception as e:
         st.error(f"Error fetching data: {e}")
@@ -55,7 +62,6 @@ if st.button("Generate P&L CSV"):
     elif date_from > date_to:
         st.warning("The 'From date' must be before the 'To date'.")
     else:
-        st.info("Fetching trades... please wait.")
         fills = get_extended_fills(wallet_address, date_from, date_to)
         if not fills:
             st.error("No trades found for this wallet and date range.")
