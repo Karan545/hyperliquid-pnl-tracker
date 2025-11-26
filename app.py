@@ -1,58 +1,101 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
-st.title("🔥 Hyperliquid P&L CSV Exporter")
+# App Title
+st.title("Hyperliquid P&L CSV Exporter")
 
-wallet_address = st.text_input("Enter your Hyperliquid wallet address:")
-days = st.slider("Number of days to analyze", 1, 90, 30)
+# Inputs
+wallet_address = st.text_input("Enter Hyperliquid wallet address:")
 
-def get_extended_fills(wallet_address, days=30):
+today = datetime.today()
+date_from = st.date_input("From date", today.replace(day=1))
+date_to = st.date_input("To date", today)
+
+# Main function: fetch user fills
+def get_hyperliquid_fills(wallet_address):
+    """
+    Fetch all fills from Hyperliquid API for the given wallet address.
+    Returns: list of fills (trade dicts), or None if not found/error.
+    """
     try:
         url = "https://api.hyperliquid.xyz/info"
-        response = requests.post(url, json={"type": "userFills", "user": wallet_address})
-        response.raise_for_status()
-        all_fills = response.json()
-        cutoff_time = (datetime.now() - timedelta(days=days)).timestamp() * 1000
-        return [f for f in all_fills if f['time'] >= cutoff_time]
+        payload = {"type": "userFills", "user": wallet_address}
+        response = requests.post(url, json=payload)
+        if response.status_code != 200:
+            st.error(f"API returned status {response.status_code}.")
+            return None
+        data = response.json()
+        # Defensive: handle improper formats, error keys
+        if isinstance(data, dict) and data.get('error'):
+            st.error(f"API Error: {data.get('error')}")
+            return None
+        if not isinstance(data, list):
+            st.error("API did not return a fill list. Check wallet address.")
+            return None
+        return data
     except Exception as e:
-        st.error(f"Error fetching data: {e}")
-        return []
+        st.error(f"Request failed: {e}")
+        return None
 
-def format_fills_to_dataframe(fills):
+# Format fills by date range
+def filter_and_format_fills(fills, date_from, date_to):
+    from_ts = int(datetime.combine(date_from, datetime.min.time()).timestamp() * 1000)
+    to_ts = int(datetime.combine(date_to, datetime.max.time()).timestamp() * 1000)
+    filtered = [
+        f for f in fills
+        if f.get('time') and from_ts <= int(f['time']) <= to_ts
+    ]
     rows = []
-    cumulative_pnl = 0
-    for fill in fills:
-        ts = datetime.fromtimestamp(fill['time'] / 1000)
+    for fill in filtered:
+        ts = datetime.fromtimestamp(int(fill['time']) / 1000)
         rows.append({
             'Date': ts.strftime('%Y-%m-%d'),
             'Time': ts.strftime('%H:%M:%S'),
-            'Asset': fill['coin'],
-            'Side': 'BUY' if fill['side'] == 'B' else 'SELL',
-            'Price': float(fill['px']),
-            'Size': float(fill['sz']),
+            'Asset': fill.get('coin', ''),
+            'Side': 'BUY' if fill.get('side', '') == 'B' else 'SELL',
+            'Price': float(fill.get('px', 0)),
+            'Size': float(fill.get('sz', 0)),
             'Fee': float(fill.get('fee', 0)),
             'Closed P&L': float(fill.get('closedPnl', 0))
         })
-    return pd.DataFrame(rows)
+    df = pd.DataFrame(rows)
+    return df
 
+# Main UI logic
 if st.button("Generate P&L CSV"):
-    if wallet_address.strip() == "":
-        st.warning("Please enter your wallet address.")
+    if not wallet_address or len(wallet_address) < 8:
+        st.warning("Please enter a valid Hyperliquid wallet address.")
+    elif date_from > date_to:
+        st.warning("'From date' must not be greater than 'To date'.")
     else:
         st.info("Fetching trades... please wait.")
-        fills = get_extended_fills(wallet_address, days)
-        if not fills:
-            st.error("No trades found for this wallet.")
+        fills = get_hyperliquid_fills(wallet_address)
+        if fills is None:
+            st.error("Could not fetch fills (see error above).")
+        elif not fills:
+            st.warning(f"No trades found for this wallet: {wallet_address}")
         else:
-            df = format_fills_to_dataframe(fills)
-            st.success("Success! Download CSV below:")
-            st.dataframe(df)
-            csv = df.to_csv(index=False).encode('utf-8')
-            st.download_button(
-                label="Download CSV",
-                data=csv,
-                file_name=f'hyperliquid_pnl_{wallet_address[:8]}.csv',
-                mime='text/csv'
-            )
+            df = filter_and_format_fills(fills, date_from, date_to)
+            if df.empty:
+                st.warning(f"No trades in this date range for wallet: {wallet_address}")
+            else:
+                st.success(f"Found {len(df)} trades. Download CSV below:")
+                st.dataframe(df)
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    label="Download CSV",
+                    data=csv,
+                    file_name=f'hyperliquid_pnl_{wallet_address[:8]}_{date_from}_{date_to}.csv',
+                    mime='text/csv'
+                )
+
+# Footer – tip for clients
+st.markdown("""
+---
+**Demo Notes:**  
+- If you see "No trades found", try a different active wallet from the Hyperliquid explorer.
+- For real asset data, use wallets seen in leaderboards or recent trade feeds.
+- API and code show raw error messages if endpoint changes.
+""")
